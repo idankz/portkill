@@ -1,82 +1,92 @@
-# portkill ?
+# portkill
 
-> Zero-config, visually polished, cross-distro Linux / WSL CLI and interactive TUI utility to scan listening ports, inspect rich process trees, and safely terminate stubborn listeners.
+CLI and interactive terminal tool to kill processes hogging your ports. No drama, tachles.
 
-Say goodbye to `lsof -i :3000` -> `kill -9 <PID>` rituals when encountering `EADDRINUSE: port already in use`.
+---
+
+## Why
+
+You run `npm run dev` or `docker compose up` and get `EADDRINUSE: port already in use`. Instead of wasting time with `lsof`, `netstat`, or guessing PIDs, just run `portkill`.
 
 ---
 
 ## Features
 
-- ? **Instant Direct Termination**: Terminate listeners on single or multiple ports (`portkill 3000 8080`).
-- ??? **Graceful Escalation**: Sends `SIGTERM` first, waits 500ms, and safely escalates to `SIGKILL` if unresponsive.
-- ?? **Docker & Container Awareness**: Identifies `docker-proxy`, `containerd-shim`, and container IPs/IDs bound to ports.
-- ?? **Rich Terminal UI**: Formatted tables with color-coded runtimes (Node, Bun, Python, Go, Rust, Java, Docker, Postgres, Redis).
-- ?? **Interactive TUI Dashboard**: Launch with `portkill` or `portkill -i` to browse open ports and interactively inspect or kill processes.
-- ?? **Critical System Safety Guards**: Blocks termination of critical services (SSH, DNS, DHCP, PID 1, systemd) unless explicitly passed `--dangerous`.
-- ?? **Actionable Permission Guidance**: Clear feedback for non-root users recommending `sudo portkill <port>`.
+- **Direct Kill**: `portkill 3000 8080` terminates listeners instantly.
+- **Graceful Escalation**: Sends `SIGTERM` first, waits 500ms, and escalates to `SIGKILL` if unresponsive.
+- **Docker Radar**: Detects `docker-proxy`, `containerd-shim`, and container IPs/IDs.
+- **Resource Stats**: Shows process RAM, CPU, uptime, and user.
+- **Safety Guards**: Blocks killing critical ports (SSH 22, DNS 53, PID 1) without `--dangerous`.
+- **Interactive Mode**: Run `portkill` with no arguments to inspect and kill via terminal prompt.
 
 ---
 
 ## Installation
 
-### From Source / Pip
 ```bash
-git clone https://github.com/your-org/portkill.git
+git clone https://github.com/idankuz/portkill.git
 cd portkill
 pip install -e .
 ```
 
 ---
 
-## Quick Usage
+## Usage
 
-### 1. Direct Kill
+### Kill Ports
 ```bash
-# Graceful kill with confirmation prompt
+# Graceful kill with confirmation
 portkill 3000
 
-# Kill multiple ports with force (SIGKILL) skipping confirmation
+# Force kill without confirmation
 portkill 3000 8080 -f
 
-# Verbose inspection showing full process tree and arguments
-portkill 5173 -v
+# Verbose process lineage
+portkill 3000 -v
 ```
 
-### 2. Common Dev Band Scanner
-Scans popular development server bands (Next.js, Vite, Flask, Rails, Django, Postgres, Redis, Mongo, Kafka):
+### Scan Ports
 ```bash
+# Scan common dev ports (3000, 5173, 8000, 5432, 6379, etc.)
 portkill scan
 
-# Scan ALL open ports on the machine (TCP + UDP)
+# Scan all open ports
 portkill scan --all
 
 # Filter by protocol
 portkill scan --proto tcp
 ```
 
-### 3. Interactive TUI Dashboard
-Launch without arguments or with `-i`:
+### Interactive Dashboard
 ```bash
 portkill
 ```
-- Type the port number to select a listener.
-- Press `[k]` to terminate gracefully.
-- Press `[f]` to force kill (`SIGKILL`).
-- Press `[d]` to view process details & command arguments.
-- Press `[q]` to quit.
+- Enter `<port>` to target a listener.
+- Press `k` to kill gracefully.
+- Press `f` to force kill (`SIGKILL`).
+- Press `d` for process details.
+- Press `r` to refresh.
+- Press `q` to quit.
 
 ---
 
-## Safety Flags
+## Permissions
 
-- `--dangerous`: Allows killing critical system ports (e.g. port 22 SSH) or core system processes.
-- `-f`, `--force`: Directly sends `SIGKILL` without waiting or prompting.
+If a port belongs to another user or Docker daemon, run with elevated privileges:
+```bash
+sudo portkill <port>
+```
 
 ---
 
-## Running Tests
+## Tests
 
 ```bash
-pytest
+pytest tests
 ```
+
+---
+
+## License
+
+MIT
