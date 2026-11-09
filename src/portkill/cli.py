@@ -1,20 +1,20 @@
 ﻿# -*- coding: utf-8 -*-
-"""Command line interface and interactive TUI routing for portkill with Israeli English flair."""
+"""Command line interface and interactive TUI routing for portkill."""
 from __future__ import annotations
 
+import os
 import sys
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import click
 from rich.prompt import Confirm, Prompt
 
 from portkill.process import (
-    get_process_info,
     is_critical,
     terminate_process,
 )
 from portkill.scanner import (
-    PortListener,
+    ScanPermissionError,
     find_listener_by_port,
     scan_ports,
 )
@@ -39,7 +39,10 @@ def kill_port_target(
     listeners = find_listener_by_port(port)
     if not listeners:
         console.print(f"[yellow]Walla, port [bold]{port}[/bold] is completely empty, nobody is home.[/yellow]")
-        return False
+        if sys.platform == "darwin" and os.geteuid() != 0:
+            console.print("[dim]Processes owned by other users are only visible with sudo on macOS.[/dim]")
+        # A free port is the outcome the caller wanted: `portkill 3000 && npm run dev`.
+        return True
 
     success_all = True
     for listener in listeners:
@@ -60,6 +63,15 @@ def kill_port_target(
         critical, reason = is_critical(port, pid, proc_name)
         if critical and not dangerous:
             render_critical_warning(port, reason)
+            success_all = False
+            continue
+
+        # Killing the proxy only breaks the port mapping; the container keeps running.
+        if proc and proc.container.runtime in ("docker-proxy", "containerd") and not dangerous:
+            err_console.print(
+                f"[bold yellow]Port {port} is held by {proc.container.runtime}.[/bold yellow] "
+                "Stop the container with `docker stop`, or pass --dangerous to kill the proxy anyway."
+            )
             success_all = False
             continue
 
@@ -102,7 +114,7 @@ def run_interactive_mode() -> None:
             console.print("[dim]Sheket total. No open listening ports found.[/dim]")
             break
 
-        table = build_listener_table(listeners, title="Interactive Portkill - Hamal")
+        table = build_listener_table(listeners, title="Interactive portkill")
         console.print(table)
         console.print(
             "\nOptions: enter [bold cyan]<port>[/bold cyan] to choose | "
@@ -159,26 +171,20 @@ def run_interactive_mode() -> None:
             continue
 
 
-class PortkillGroup(click.Group):
-    """Custom Click Group supporting both direct port arguments and subcommands."""
+@click.group()
+def cli() -> None:
+    """Find and terminate the processes holding your ports.
 
-    def parse_args(self, ctx: click.Context, args: List[str]) -> List[str]:
-        return super().parse_args(ctx, args)
-
-
-@click.group(cls=PortkillGroup, invoke_without_command=True)
-@click.pass_context
-def cli(ctx: click.Context) -> None:
-    """Tachles CLI and interactive utility to terminate stubborn port listeners without headache."""
-    if ctx.invoked_subcommand is None:
-        pass
+    Run with no arguments for interactive mode, or use `portkill 3000 8080` as a
+    shortcut for `portkill kill 3000 8080`.
+    """
 
 
 @cli.command("scan")
-@click.option("-a", "--all", "all_ports", is_flag=True, help="Scan all active listening ports, lo rak dev ports.")
+@click.option("-a", "--all", "all_ports", is_flag=True, help="Scan all listening ports, not only common dev ports.")
 @click.option("-p", "--proto", "protocol", type=click.Choice(["tcp", "udp"], case_sensitive=False), help="Protocol: tcp or udp.")
 def scan_command(all_ports: bool, protocol: Optional[str]) -> None:
-    """Scan and show active listening ports, no drama."""
+    """Show active listening ports."""
     with console.status("[bold cyan]Bodek ports...[/bold cyan]"):
         listeners = scan_ports(protocol_filter=protocol, include_all=all_ports)
 
@@ -187,14 +193,14 @@ def scan_command(all_ports: bool, protocol: Optional[str]) -> None:
         console.print(f"[dim]Hakol naki! No {scope} listeners open.[/dim]")
         return
 
-    title = "Kol HaPorts (All Active Listening Ports)" if all_ports else "Dev Ports Map"
+    title = "All Listening Ports" if all_ports else "Dev Ports"
     table = build_listener_table(listeners, title=title)
     console.print(table)
 
 
-@cli.command("kill", hidden=True)
+@cli.command("kill")
 @click.argument("ports", nargs=-1, type=int, required=True)
-@click.option("-f", "--force", is_flag=True, help="Force kill immediately with SIGKILL, בלי שאלות.")
+@click.option("-f", "--force", is_flag=True, help="Force kill immediately with SIGKILL, without confirmation.")
 @click.option("-v", "--verbose", is_flag=True, help="Print full process lineage and arguments.")
 @click.option("--dangerous", is_flag=True, help="Allow killing critical ports/processes (SSH, DNS, PID 1).")
 def kill_command(
@@ -222,20 +228,23 @@ def kill_command(
 
 def main() -> None:
     args = sys.argv[1:]
-    known_commands = {"scan", "kill", "--help", "-h"}
+    known_commands = {"scan", "kill", "--help"}
 
-    if not args:
-        run_interactive_mode()
-        return
+    try:
+        if not args or args[0] in ("-i", "--interactive"):
+            run_interactive_mode()
+            return
 
-    if args[0] in ("-i", "--interactive"):
-        run_interactive_mode()
-        return
+        # Allow options before ports too: `portkill -f 3000`.
+        if args[0] not in known_commands and (
+            not args[0].startswith("-") or any(a.isdigit() for a in args)
+        ):
+            sys.argv.insert(1, "kill")
 
-    if args[0] not in known_commands and not args[0].startswith("-"):
-        sys.argv.insert(1, "kill")
-
-    cli()
+        cli()
+    except ScanPermissionError as exc:
+        err_console.print(f"[bold red]{exc}[/bold red]")
+        sys.exit(2)
 
 
 if __name__ == "__main__":

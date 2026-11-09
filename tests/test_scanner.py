@@ -1,4 +1,5 @@
 """Unit tests for portkill scanning, safety guards, and process resolution."""
+import psutil
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -82,3 +83,47 @@ def test_terminate_process_flow():
         assert ok is True
         mock_instance.terminate.assert_called_once()
         mock_instance.wait.assert_called_once()
+
+
+def test_parse_lsof_output():
+    """lsof field output yields IPv4, IPv6 and wildcard listeners, skipping peers."""
+    from portkill.scanner import parse_lsof_output
+
+    sockets = parse_lsof_output(
+        "p101\nf12\nn127.0.0.1:3000\nf13\nn[::1]:3000\np202\nf5\nn*:8080\nf6\nn10.0.0.1:5000->10.0.0.2:80\n"
+    )
+    assert [(s.ip, s.port, s.pid) for s in sockets] == [
+        ("127.0.0.1", 3000, 101),
+        ("::1", 3000, 101),
+        ("*", 8080, 202),
+    ]
+
+
+def test_scan_falls_back_to_lsof_when_psutil_denied():
+    """An AccessDenied from psutil (macOS without root) must not look like an empty port."""
+    from portkill.scanner import RawSocket
+
+    with patch("portkill.scanner.psutil.net_connections", side_effect=psutil.AccessDenied()), \
+         patch("portkill.scanner.shutil.which", return_value="/usr/sbin/lsof"), \
+         patch("portkill.scanner._lsof_sockets", return_value=[RawSocket("127.0.0.1", 3000, 101, "LISTEN")]), \
+         patch("portkill.scanner.get_process_info", return_value=None):
+        listeners = scan_ports(ports_filter={3000}, protocol_filter="tcp")
+    assert [(l.port, l.pid) for l in listeners] == [(3000, 101)]
+
+
+def test_scan_raises_when_denied_without_fallback():
+    """With no lsof available the permission failure is reported, not swallowed."""
+    from portkill.scanner import ScanPermissionError
+
+    with patch("portkill.scanner.psutil.net_connections", side_effect=psutil.AccessDenied()), \
+         patch("portkill.scanner.shutil.which", return_value=None):
+        with pytest.raises(ScanPermissionError):
+            scan_ports(ports_filter={3000}, protocol_filter="tcp")
+
+
+def test_free_port_is_success():
+    """`portkill 3000 && npm run dev` must proceed when the port is already free."""
+    from portkill.cli import kill_port_target
+
+    with patch("portkill.cli.find_listener_by_port", return_value=[]):
+        assert kill_port_target(3000) is True

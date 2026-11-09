@@ -74,11 +74,11 @@ def build_listener_table(listeners: List[PortListener], title: str = "Active Por
     table.add_column("Proto", justify="center", style="dim")
     table.add_column("Address", justify="left", style="dim")
     table.add_column("PID", justify="right", style="bold")
-    table.add_column("Process (Mi Ze?)", justify="left")
-    table.add_column("Gever / User", justify="left", style="dim")
+    table.add_column("Process", justify="left")
+    table.add_column("User", justify="left", style="dim")
     table.add_column("RAM", justify="right")
     table.add_column("CPU", justify="right")
-    table.add_column("Pazam (Uptime)", justify="right", style="dim")
+    table.add_column("Uptime", justify="right", style="dim")
     table.add_column("Docker / Context", justify="left", style="italic")
 
     for item in listeners:
@@ -90,7 +90,7 @@ def build_listener_table(listeners: List[PortListener], title: str = "Active Por
         proc = item.process
         if proc:
             proc_name = highlight_runtime(proc.name)
-            user_str = proc.username or "stam-someone"
+            user_str = proc.username or "unknown"
             mem_str = f"{proc.memory_mb:.1f} MB" if proc.memory_mb > 0 else "-"
             cpu_str = f"{proc.cpu_percent:.1f}%"
             uptime_str = proc.uptime_str
@@ -99,7 +99,7 @@ def build_listener_table(listeners: List[PortListener], title: str = "Active Por
             if proc.container.is_container:
                 container_str = f"[bold blue]🐳 {proc.container.container_name or proc.container.runtime}[/bold blue]"
         else:
-            proc_name = Text("<Ein Harshaah / Blocked>", style="dim red")
+            proc_name = Text("<Access denied>", style="dim red")
             user_str = "-"
             mem_str = "-"
             cpu_str = "-"
@@ -133,14 +133,14 @@ def render_process_details(listener: PortListener, verbose: bool = False) -> Non
 
     # Parent node if exists
     if proc.ppid and proc.parent_name:
-        parent_branch = tree.add(f"[dim]Aba (Parent PID {proc.ppid}): {proc.parent_name}[/dim]")
+        parent_branch = tree.add(f"[dim]Parent (PID {proc.ppid}): {proc.parent_name}[/dim]")
         proc_node = parent_branch.add(f"[bold green]Target PID {proc.pid}: {proc.name}[/bold green]")
     else:
         proc_node = tree.add(f"[bold green]Target PID {proc.pid}: {proc.name}[/bold green]")
 
-    proc_node.add(f"Gever (User): [cyan]{proc.username}[/cyan]")
+    proc_node.add(f"User: [cyan]{proc.username}[/cyan]")
     proc_node.add(f"RAM footprint: [magenta]{proc.memory_mb:.2f} MB[/magenta]")
-    proc_node.add(f"Pazam (Uptime): [dim]{proc.uptime_str}[/dim]")
+    proc_node.add(f"Uptime: [dim]{proc.uptime_str}[/dim]")
 
     if proc.container.is_container:
         proc_node.add(f"Docker Container: [bold blue]🐳 {proc.container.container_name or proc.container.runtime}[/bold blue]")
@@ -157,14 +157,14 @@ def render_process_details(listener: PortListener, verbose: bool = False) -> Non
 def render_error_permission(port: int, pid: Optional[int] = None) -> None:
     """No permissions? Yalla run with sudo ahi."""
     panel = Panel(
-        f"[bold red]Ein Harshaah! (Permission Denied / EPERM)[/bold red]\n\n"
+        f"[bold red]Permission denied (EPERM)[/bold red]\n\n"
         f"Ahi, your terminal cannot touch port [bold yellow]{port}[/bold yellow]"
         + (f" (PID {pid})." if pid else ".")
         + f"\n\n[bold white]Tachles, what to do:[/bold white]\n"
         f"  Open terminal with sudo or Run as Administrator, al tid-ag:\n"
         f"  [bold green]sudo portkill {port}[/bold green]"
         + (f" (or right click CMD -> Run as Administrator)" if sys.platform == "win32" else ""),
-        title="⚠️ Elevation Needed Ya Gever",
+        title="⚠️ Elevation Needed",
         border_style="red",
     )
     err_console.print(panel)
@@ -173,13 +173,13 @@ def render_error_permission(port: int, pid: Optional[int] = None) -> None:
 def render_critical_warning(port: int, reason: str) -> None:
     """Critical system guard - lo osim balagan."""
     panel = Panel(
-        f"[bold red]ATZOR! (HOLD UP! CRITICAL SYSTEM PORT)[/bold red]\n\n"
+        f"[bold red]CRITICAL SYSTEM PORT[/bold red]\n\n"
         f"{reason}\n\n"
         f"Bro, if you kill this you will destroy your network connection or crash the whole machine.\n\n"
         f"[bold white]You insist on doing balagan?[/bold white]\n"
         f"Pass --dangerous flag and take full responsibility:\n"
         f"  [bold yellow]portkill {port} --dangerous[/bold yellow]",
-        title="🛑 Ktzat Ahrayut - Critical Guard",
+        title="🛑 Critical Guard",
         border_style="bright_red",
     )
     err_console.print(panel)
