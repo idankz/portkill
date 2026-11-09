@@ -1,6 +1,6 @@
 # portkill
 
-CLI and interactive terminal tool to kill processes hogging your ports. No drama, tachles.
+CLI and interactive terminal tool to kill processes hogging your ports.
 
 ---
 
@@ -24,7 +24,7 @@ You run `npm run dev` or `docker compose up` and get `EADDRINUSE: port already i
 ## Installation
 
 ```bash
-git clone https://github.com/idankuz/portkill.git
+git clone https://github.com/idankz/portkill.git
 cd portkill
 pip install -e .
 ```

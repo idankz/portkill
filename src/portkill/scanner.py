@@ -1,13 +1,70 @@
 """Port and socket scanning logic across network connections."""
 from __future__ import annotations
 
-import socket
+import shutil
+import subprocess
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Iterator, List, NamedTuple, Optional, Set, Tuple
 
 import psutil
 
 from portkill.process import ProcessInfo, get_process_info
+
+
+class ScanPermissionError(Exception):
+    """Raised when the OS refuses socket enumeration and no fallback is available."""
+
+
+class RawSocket(NamedTuple):
+    ip: str
+    port: int
+    pid: Optional[int]
+    status: str
+
+
+def parse_lsof_output(output: str) -> List[RawSocket]:
+    """Parse `lsof -F pn` output into listening sockets."""
+    sockets: List[RawSocket] = []
+    pid: Optional[int] = None
+    for line in output.splitlines():
+        if line.startswith("p"):
+            pid = int(line[1:])
+        elif line.startswith("n") and "->" not in line:
+            ip, _, port = line[1:].rpartition(":")
+            if port.isdigit():
+                sockets.append(RawSocket(ip.strip("[]"), int(port), pid, "LISTEN"))
+    return sockets
+
+
+def _lsof_sockets(kind: str) -> List[RawSocket]:
+    """Enumerate the current user's sockets with lsof (used when psutil is denied)."""
+    selector = ["-iTCP", "-sTCP:LISTEN"] if kind == "tcp" else ["-iUDP"]
+    result = subprocess.run(
+        ["lsof", "-nP", *selector, "-F", "pn"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return parse_lsof_output(result.stdout)
+
+
+def _iter_sockets(kind: str) -> Iterator[RawSocket]:
+    """Yield listening sockets, falling back to lsof where psutil needs root (macOS)."""
+    try:
+        connections = psutil.net_connections(kind=kind)
+    except (psutil.AccessDenied, PermissionError):
+        if not shutil.which("lsof"):
+            raise ScanPermissionError(
+                "The OS denied access to the socket table. Re-run with sudo."
+            ) from None
+        yield from _lsof_sockets(kind)
+        return
+
+    for conn in connections:
+        if kind == "tcp" and conn.status != psutil.CONN_LISTEN:
+            continue
+        if conn.laddr:
+            yield RawSocket(conn.laddr.ip, conn.laddr.port, conn.pid, conn.status or "OPEN")
 
 # Common Dev Port Ranges and Specific Target Ports
 COMMON_DEV_PORTS: Set[int] = {
@@ -71,22 +128,8 @@ def scan_ports(
         kinds = ["tcp", "udp"]
 
     for kind in kinds:
-        try:
-            connections = psutil.net_connections(kind=kind)
-        except (psutil.AccessDenied, PermissionError):
-            # Fallback or reduced capability
-            connections = []
-
-        for conn in connections:
-            # We are interested in LISTEN status for TCP, or NONE for UDP
-            if kind == "tcp" and conn.status != psutil.CONN_LISTEN:
-                continue
-
-            if not conn.laddr:
-                continue
-
-            ip = conn.laddr.ip
-            port = conn.laddr.port
+        for sock in _iter_sockets(kind):
+            port = sock.port
 
             if ports_filter is not None:
                 if port not in ports_filter:
@@ -95,20 +138,20 @@ def scan_ports(
                 if port not in COMMON_DEV_PORTS:
                     continue
 
-            key = (kind, port, conn.pid)
+            key = (kind, port, sock.pid)
             if key in seen_keys:
                 continue
             seen_keys.add(key)
 
-            proc_info = get_process_info(conn.pid) if conn.pid else None
+            proc_info = get_process_info(sock.pid) if sock.pid else None
 
             results.append(
                 PortListener(
                     port=port,
                     protocol=kind.upper(),
-                    ip=ip,
-                    pid=conn.pid,
-                    status=conn.status if conn.status else "OPEN",
+                    ip=sock.ip,
+                    pid=sock.pid,
+                    status=sock.status,
                     process=proc_info,
                 )
             )
